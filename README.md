@@ -20,13 +20,16 @@ cargo install --path .
 ### Cluster
 
 ```bash
-# Create a single-node k3s cluster (defaults: 2 CPUs, 4GiB RAM, 20GiB disk)
+# Create a single control-plane cluster (defaults: 2 CPUs, 4GiB RAM, 20GiB disk)
 kubelima cluster create --name dev
 
-# Create a 3-node cluster (1 server + 2 agents)
-kubelima cluster create --name dev --nodes 3 --cpus 4 --memory 8 --disk 40
+# Create a cluster with 1 control-plane and 2 workers
+kubelima cluster create --name dev --control-plane 1 --workers 2
 
-# List clusters
+# Create with custom resources
+kubelima cluster create --name dev --control-plane 1 --workers 2 --cpus 4 --memory 8 --disk 40
+
+# List clusters (always shown even when nodes are not yet running)
 kubelima cluster list
 
 # Show cluster details
@@ -39,32 +42,44 @@ kubelima cluster delete --name dev
 ### Kubeconfig
 
 ```bash
-# Download kubeconfig
+# Download kubeconfig to the current directory (./kubeconfig-dev.yaml)
 kubelima kubeconfig get --cluster dev
 
+# Download to a specific directory
+kubelima kubeconfig get --cluster dev --output ~/.kube
+
 # Use the cluster
-export KUBECONFIG=~/kubeconfig-dev.yaml
+export KUBECONFIG=./kubeconfig-dev.yaml
 kubectl get nodes
 ```
 
 ### Nodes
+
+Nodes have two roles: **control-plane** and **worker**.
+VM names follow the pattern `<cluster>-cp-<n>` and `<cluster>-worker-<n>`.
 
 ```bash
 # List nodes
 kubelima node list --cluster dev
 
 # Show node details
-kubelima node info --cluster dev --node dev-server-0
+kubelima node info --cluster dev --node dev-cp-0
 
-# Add agent nodes to an existing cluster
-kubelima node add --cluster dev --count 2
+# Add worker nodes to an existing cluster
+kubelima node add --cluster dev --workers 2
+
+# Add control-plane nodes
+kubelima node add --cluster dev --control-plane 1
+
+# Add both at once
+kubelima node add --cluster dev --control-plane 1 --workers 2
 
 # Remove a node
-kubelima node delete --cluster dev --node dev-agent-0
+kubelima node delete --cluster dev --node dev-worker-0
 
-# SSH into a node
+# SSH into a node (defaults to first control-plane)
 kubelima node ssh --cluster dev
-kubelima node ssh --cluster dev --node dev-agent-0
+kubelima node ssh --cluster dev --node dev-worker-0
 ```
 
 ### Mounts (Host → VM directory sharing)
@@ -74,16 +89,16 @@ stopped and restarted automatically when a mount is added or removed.
 
 ```bash
 # Mount a local directory into a node (read-write by default)
-kubelima mount add --cluster dev --node dev-server-0 --local /tmp/data --remote /mnt/data
+kubelima mount add --cluster dev --node dev-cp-0 --local /tmp/data --remote /mnt/data
 
 # Mount read-only
-kubelima mount add --cluster dev --node dev-server-0 --local /tmp/data --remote /mnt/data --readonly
+kubelima mount add --cluster dev --node dev-cp-0 --local /tmp/data --remote /mnt/data --readonly
 
 # List mounts
 kubelima mount list --cluster dev
 
 # Remove a mount
-kubelima mount remove --cluster dev --node dev-server-0 --local /tmp/data
+kubelima mount remove --cluster dev --node dev-cp-0 --local /tmp/data
 ```
 
 > **Multiple disks / block devices:** Lima does not expose raw block devices
