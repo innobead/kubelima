@@ -1,0 +1,30 @@
+[package]
+name = "kubelima"
+version = "0.1.0"
+edition = "2024"
+description = "K8s variant distro cluster provisioning and management via Lima VMs"
+license = "MIT"
+authors = ["David Ko <innobead@gmail.com>"]
+
+[[bin]]
+name = "kubelima"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[dependencies]
+clap = { version = "4", features = ["derive", "env"] }
+tokio = { version = "1", features = ["full"] }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+async-trait = "0.1"
+colored = "3"
+dirs = "6"
+chrono = { version = "0.4", features = ["serde"] }
