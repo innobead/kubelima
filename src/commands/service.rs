@@ -18,13 +18,13 @@ pub async fn export(
     let mut state = load_cluster(cluster)?;
     let provisioner = get_provisioner(&state.distro)?;
 
-    let server_vm = state
-        .server_vm_name()
-        .ok_or_else(|| anyhow::anyhow!("Cluster '{}' has no server node", cluster))?
+    let control_plane_vm = state
+        .control_plane_vm_name()
+        .ok_or_else(|| anyhow::anyhow!("Cluster '{}' has no control-plane node", cluster))?
         .to_string();
 
     // Get the kubeconfig path to pass to kubectl
-    let kubeconfig = provisioner.kubeconfig_path(&server_vm)?;
+    let kubeconfig = provisioner.kubeconfig_path(&control_plane_vm)?;
     if !kubeconfig.exists() {
         anyhow::bail!(
             "Kubeconfig not found at {:?}. Is the cluster running?",

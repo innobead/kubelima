@@ -2,17 +2,18 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
 pub enum NodeRole {
-    Server,
-    Agent,
+    #[serde(rename = "control-plane")]
+    ControlPlane,
+    #[serde(rename = "worker")]
+    Worker,
 }
 
 impl std::fmt::Display for NodeRole {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            NodeRole::Server => write!(f, "server"),
-            NodeRole::Agent => write!(f, "agent"),
+            NodeRole::ControlPlane => write!(f, "control-plane"),
+            NodeRole::Worker => write!(f, "worker"),
         }
     }
 }
@@ -22,9 +23,9 @@ impl std::str::FromStr for NodeRole {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "server" => Ok(NodeRole::Server),
-            "agent" => Ok(NodeRole::Agent),
-            _ => anyhow::bail!("Unknown node role '{}'. Valid: server, agent", s),
+            "control-plane" | "controlplane" => Ok(NodeRole::ControlPlane),
+            "worker" => Ok(NodeRole::Worker),
+            _ => anyhow::bail!("Unknown node role '{}'. Valid: control-plane, worker", s),
         }
     }
 }
@@ -68,23 +69,38 @@ pub struct ClusterState {
 }
 
 impl ClusterState {
-    pub fn server_node(&self) -> Option<&NodeConfig> {
-        self.nodes.iter().find(|n| n.role == NodeRole::Server)
-    }
-
-    pub fn server_vm_name(&self) -> Option<&str> {
-        self.server_node().map(|n| n.name.as_str())
-    }
-
-    pub fn agent_nodes(&self) -> Vec<&NodeConfig> {
+    pub fn control_plane_nodes(&self) -> Vec<&NodeConfig> {
         self.nodes
             .iter()
-            .filter(|n| n.role == NodeRole::Agent)
+            .filter(|n| n.role == NodeRole::ControlPlane)
             .collect()
     }
 
-    pub fn next_agent_index(&self) -> usize {
-        self.agent_nodes()
+    pub fn control_plane_node(&self) -> Option<&NodeConfig> {
+        self.nodes.iter().find(|n| n.role == NodeRole::ControlPlane)
+    }
+
+    pub fn control_plane_vm_name(&self) -> Option<&str> {
+        self.control_plane_node().map(|n| n.name.as_str())
+    }
+
+    pub fn worker_nodes(&self) -> Vec<&NodeConfig> {
+        self.nodes
+            .iter()
+            .filter(|n| n.role == NodeRole::Worker)
+            .collect()
+    }
+
+    pub fn next_control_plane_index(&self) -> usize {
+        self.control_plane_nodes()
+            .iter()
+            .map(|n| n.index + 1)
+            .max()
+            .unwrap_or(0)
+    }
+
+    pub fn next_worker_index(&self) -> usize {
+        self.worker_nodes()
             .iter()
             .map(|n| n.index + 1)
             .max()

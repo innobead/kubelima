@@ -35,16 +35,19 @@ impl K3sProvisioner {
         Ok(tpl)
     }
 
-    /// Fetch the node-token from an already-running k3s server VM.
-    pub async fn fetch_token(server_vm: &str) -> Result<String> {
-        LimaClient::run_in_vm(server_vm, "sudo cat /var/lib/rancher/k3s/server/node-token")
-            .await
-            .context("Failed to retrieve k3s node token from server")
+    /// Fetch the node-token from an already-running k3s control-plane VM.
+    pub async fn fetch_token(control_plane_vm: &str) -> Result<String> {
+        LimaClient::run_in_vm(
+            control_plane_vm,
+            "sudo cat /var/lib/rancher/k3s/server/node-token",
+        )
+        .await
+        .context("Failed to retrieve k3s node token from control-plane")
     }
 
     /// Build the internal DNS name for a VM within the lima:user-v2 network.
-    pub fn internal_url(server_vm: &str) -> String {
-        format!("https://lima-{}.internal:6443", server_vm)
+    pub fn internal_url(control_plane_vm: &str) -> String {
+        format!("https://lima-{}.internal:6443", control_plane_vm)
     }
 }
 
@@ -54,7 +57,7 @@ impl Provisioner for K3sProvisioner {
         "k3s"
     }
 
-    async fn create_server(&self, ctx: &ProvisionContext) -> Result<()> {
+    async fn create_control_plane(&self, ctx: &ProvisionContext) -> Result<()> {
         if ctx.cloud_init_scripts.is_empty() {
             // Fast path: use the stock template with --set for resource sizing.
             let set_expr = format!(
@@ -83,9 +86,9 @@ impl Provisioner for K3sProvisioner {
         }
     }
 
-    async fn create_agent(&self, ctx: &ProvisionContext, server_vm: &str) -> Result<()> {
-        let token = Self::fetch_token(server_vm).await?;
-        let url = Self::internal_url(server_vm);
+    async fn create_worker(&self, ctx: &ProvisionContext, control_plane_vm: &str) -> Result<()> {
+        let token = Self::fetch_token(control_plane_vm).await?;
+        let url = Self::internal_url(control_plane_vm);
 
         let tmp =
             Self::build_vm_template(ctx, Some(&url), Some(&token))?.write_temp(&ctx.vm_name)?;
@@ -100,17 +103,17 @@ impl Provisioner for K3sProvisioner {
         result
     }
 
-    fn kubeconfig_path(&self, server_vm: &str) -> Result<PathBuf> {
+    fn kubeconfig_path(&self, control_plane_vm: &str) -> Result<PathBuf> {
         let home = dirs::home_dir().context("Cannot determine home directory")?;
         Ok(home
             .join(".lima")
-            .join(server_vm)
+            .join(control_plane_vm)
             .join("copied-from-guest")
             .join("kubeconfig.yaml"))
     }
 
-    async fn fetch_kubeconfig(&self, server_vm: &str) -> Result<String> {
-        let path = self.kubeconfig_path(server_vm)?;
+    async fn fetch_kubeconfig(&self, control_plane_vm: &str) -> Result<String> {
+        let path = self.kubeconfig_path(control_plane_vm)?;
         std::fs::read_to_string(&path).with_context(|| {
             format!(
                 "Kubeconfig not found at {:?}. Is the cluster running?",

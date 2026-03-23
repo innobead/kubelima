@@ -8,11 +8,11 @@ pub async fn get(cluster: &str, output: Option<&str>, merge: bool) -> Result<()>
     let state = load_cluster(cluster)?;
     let provisioner = get_provisioner(&state.distro)?;
 
-    let server_vm = state
-        .server_vm_name()
-        .ok_or_else(|| anyhow::anyhow!("Cluster '{}' has no server node", cluster))?;
+    let control_plane_vm = state
+        .control_plane_vm_name()
+        .ok_or_else(|| anyhow::anyhow!("Cluster '{}' has no control-plane node", cluster))?;
 
-    let kubeconfig_content = provisioner.fetch_kubeconfig(server_vm).await?;
+    let kubeconfig_content = provisioner.fetch_kubeconfig(control_plane_vm).await?;
 
     // Fix the server address: lima copies kubeconfig with 127.0.0.1:<port>
     // which is already correct for local access since lima port-forwards automatically.
@@ -25,12 +25,12 @@ pub async fn get(cluster: &str, output: Option<&str>, merge: bool) -> Result<()>
         &format!("current-context: {}", cluster),
     );
 
+    let filename = format!("kubeconfig-{}.yaml", cluster);
     let dest = match output {
-        Some(path) => PathBuf::from(path),
-        None => {
-            let home = dirs::home_dir().context("Cannot determine home directory")?;
-            home.join(format!("kubeconfig-{}.yaml", cluster))
-        }
+        Some(dir) => PathBuf::from(dir).join(&filename),
+        None => std::env::current_dir()
+            .context("Cannot determine current directory")?
+            .join(&filename),
     };
 
     if merge {

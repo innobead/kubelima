@@ -25,17 +25,17 @@ pub trait Provisioner: Send + Sync {
     #[allow(dead_code)]
     fn distro_name(&self) -> &str;
 
-    /// Provision the first server/control-plane VM.
-    async fn create_server(&self, ctx: &ProvisionContext) -> Result<()>;
+    /// Provision a control-plane VM.
+    async fn create_control_plane(&self, ctx: &ProvisionContext) -> Result<()>;
 
-    /// Provision an agent VM that joins an existing server.
-    async fn create_agent(&self, ctx: &ProvisionContext, server_vm: &str) -> Result<()>;
+    /// Provision a worker VM that joins an existing control-plane.
+    async fn create_worker(&self, ctx: &ProvisionContext, control_plane_vm: &str) -> Result<()>;
 
     /// Return the path to the kubeconfig file for this cluster (on the host).
-    fn kubeconfig_path(&self, server_vm: &str) -> Result<PathBuf>;
+    fn kubeconfig_path(&self, control_plane_vm: &str) -> Result<PathBuf>;
 
-    /// Fetch the raw kubeconfig YAML content from the server VM.
-    async fn fetch_kubeconfig(&self, server_vm: &str) -> Result<String>;
+    /// Fetch the raw kubeconfig YAML content from the control-plane VM.
+    async fn fetch_kubeconfig(&self, control_plane_vm: &str) -> Result<String>;
 }
 
 /// Return a boxed provisioner for the given distro identifier.

@@ -1,5 +1,10 @@
 use anyhow::Result;
 use chrono::Utc;
+use cli_table::{
+    Cell, Color, Style, Table,
+    format::{Border, Separator},
+    print_stdout,
+};
 use colored::Colorize;
 
 use crate::{
@@ -11,7 +16,8 @@ use crate::{
 
 pub async fn create(
     name: &str,
-    nodes: u32,
+    control_plane: u32,
+    workers: u32,
     distro: &str,
     cpus: u32,
     memory_gb: u32,
@@ -22,51 +28,64 @@ pub async fn create(
     let provisioner = get_provisioner(distro)?;
 
     println!(
-        "{} Creating cluster '{}' with {} node(s) using {} ...",
+        "{} Creating cluster '{}' ({} control-plane, {} worker) using {} ...",
         "[kubelima]".cyan().bold(),
         name.yellow(),
-        nodes,
+        control_plane,
+        workers,
         distro.yellow()
     );
 
-    let server_vm = format!("{}-server-0", name);
-    let server_ctx = ProvisionContext {
-        vm_name: server_vm.clone(),
-        cpus,
-        memory_gb,
-        disk_gb,
-        cloud_init_scripts: cloud_init.to_vec(),
-    };
+    let mut node_configs = vec![];
 
-    println!(
-        "  {} Starting server VM '{}'",
-        "+".green().bold(),
-        server_vm
-    );
-    provisioner.create_server(&server_ctx).await?;
-
-    let mut node_configs = vec![NodeConfig {
-        name: server_vm.clone(),
-        role: NodeRole::Server,
-        index: 0,
-    }];
-
-    // Provision additional agent nodes (nodes - 1, since server counts as 1)
-    let agent_count = nodes.saturating_sub(1) as usize;
-    for i in 0..agent_count {
-        let agent_vm = format!("{}-agent-{}", name, i);
-        println!("  {} Starting agent VM '{}'", "+".green().bold(), agent_vm);
-        let agent_ctx = ProvisionContext {
-            vm_name: agent_vm.clone(),
+    for i in 0..control_plane as usize {
+        let cp_vm = format!("{}-cp-{}", name, i);
+        println!(
+            "  {} Starting control-plane VM '{}'",
+            "+".green().bold(),
+            cp_vm
+        );
+        let cp_ctx = ProvisionContext {
+            vm_name: cp_vm.clone(),
             cpus,
             memory_gb,
             disk_gb,
             cloud_init_scripts: cloud_init.to_vec(),
         };
-        provisioner.create_agent(&agent_ctx, &server_vm).await?;
+        provisioner.create_control_plane(&cp_ctx).await?;
         node_configs.push(NodeConfig {
-            name: agent_vm,
-            role: NodeRole::Agent,
+            name: cp_vm,
+            role: NodeRole::ControlPlane,
+            index: i,
+        });
+    }
+
+    let primary_cp_vm = node_configs
+        .iter()
+        .find(|n| n.role == NodeRole::ControlPlane)
+        .map(|n| n.name.clone())
+        .ok_or_else(|| anyhow::anyhow!("No control-plane node was created"))?;
+
+    for i in 0..workers as usize {
+        let worker_vm = format!("{}-worker-{}", name, i);
+        println!(
+            "  {} Starting worker VM '{}'",
+            "+".green().bold(),
+            worker_vm
+        );
+        let worker_ctx = ProvisionContext {
+            vm_name: worker_vm.clone(),
+            cpus,
+            memory_gb,
+            disk_gb,
+            cloud_init_scripts: cloud_init.to_vec(),
+        };
+        provisioner
+            .create_worker(&worker_ctx, &primary_cp_vm)
+            .await?;
+        node_configs.push(NodeConfig {
+            name: worker_vm,
+            role: NodeRole::Worker,
             index: i,
         });
     }
@@ -108,49 +127,64 @@ pub async fn list() -> Result<()> {
     // Fetch live VM data for status
     let live_vms = LimaClient::list_vms().await.unwrap_or_default();
 
-    println!(
-        "{:<20} {:<10} {:<8} {:<10} {:<10} {:<12} {}",
-        "NAME".bold(),
-        "DISTRO".bold(),
-        "NODES".bold(),
-        "CPUS".bold(),
-        "MEMORY".bold(),
-        "DISK".bold(),
-        "STATUS".bold()
-    );
+    let rows: Vec<Vec<cli_table::CellStruct>> = names
+        .iter()
+        .map(|cluster_name| match load_cluster(cluster_name) {
+            Err(_) => vec![
+                cluster_name.cell(),
+                "?".cell(),
+                "?".cell(),
+                "?".cell(),
+                "?".cell(),
+                "?".cell(),
+                "Unknown".cell().foreground_color(Some(Color::White)),
+            ],
+            Ok(state) => {
+                let vm_statuses: Vec<&str> = state
+                    .nodes
+                    .iter()
+                    .filter_map(|n| live_vms.iter().find(|v| v.name == n.name))
+                    .map(|v| v.status.as_str())
+                    .collect();
 
-    for cluster_name in &names {
-        if let Ok(state) = load_cluster(cluster_name) {
-            // Determine aggregate status from live VMs
-            let vm_statuses: Vec<&str> = state
-                .nodes
-                .iter()
-                .filter_map(|n| live_vms.iter().find(|v| v.name == n.name))
-                .map(|v| v.status.as_str())
-                .collect();
+                let (status_str, status_color) = if vm_statuses.is_empty() {
+                    ("Unknown".to_string(), Some(Color::White))
+                } else if vm_statuses.iter().all(|s| *s == "Running") {
+                    ("Running".to_string(), Some(Color::Green))
+                } else if vm_statuses.iter().any(|s| *s == "Running") {
+                    ("Partial".to_string(), Some(Color::Yellow))
+                } else {
+                    (vm_statuses[0].to_string(), Some(Color::Red))
+                };
 
-            let status = if vm_statuses.is_empty() {
-                "unknown".to_string()
-            } else if vm_statuses.iter().all(|s| *s == "Running") {
-                "Running".green().to_string()
-            } else if vm_statuses.iter().any(|s| *s == "Running") {
-                "Partial".yellow().to_string()
-            } else {
-                "Stopped".red().to_string()
-            };
+                vec![
+                    cluster_name.cell(),
+                    state.distro.cell(),
+                    state.nodes.len().cell(),
+                    state.cpus.cell(),
+                    format!("{}GiB", state.memory_gb).cell(),
+                    format!("{}GiB", state.disk_gb).cell(),
+                    status_str.cell().foreground_color(status_color),
+                ]
+            }
+        })
+        .collect();
 
-            println!(
-                "{:<20} {:<10} {:<8} {:<10} {:<10} {:<12} {}",
-                cluster_name,
-                state.distro,
-                state.nodes.len(),
-                state.cpus,
-                format!("{}GiB", state.memory_gb),
-                format!("{}GiB", state.disk_gb),
-                status
-            );
-        }
-    }
+    let table = rows
+        .table()
+        .title(vec![
+            "NAME".cell().bold(true),
+            "DISTRO".cell().bold(true),
+            "NODES".cell().bold(true),
+            "CPUS".cell().bold(true),
+            "MEMORY".cell().bold(true),
+            "DISK".cell().bold(true),
+            "STATUS".cell().bold(true),
+        ])
+        .border(Border::builder().build())
+        .separator(Separator::builder().build());
+
+    print_stdout(table)?;
     Ok(())
 }
 
@@ -169,22 +203,41 @@ pub async fn info(name: &str) -> Result<()> {
     );
 
     println!("\n  {}", "Nodes:".bold());
-    for node in &state.nodes {
-        let vm = live_vms.iter().find(|v| v.name == node.name);
-        let status = vm.map(|v| v.status.as_str()).unwrap_or("unknown");
-        let ip = vm.and_then(|v| v.ip()).unwrap_or("-");
-        let status_colored = match status {
-            "Running" => status.green().to_string(),
-            "Stopped" => status.red().to_string(),
-            _ => status.yellow().to_string(),
-        };
-        println!(
-            "    {:<30} {:<8} {:<12} {}",
-            node.name,
-            node.role.to_string().cyan(),
-            ip,
-            status_colored
-        );
+    {
+        let node_rows: Vec<Vec<cli_table::CellStruct>> = state
+            .nodes
+            .iter()
+            .map(|node| {
+                let vm = live_vms.iter().find(|v| v.name == node.name);
+                let status = vm.map(|v| v.status.as_str()).unwrap_or("unknown");
+                let ip = vm.and_then(|v| v.ip()).unwrap_or("-");
+                let status_color = match status {
+                    "Running" => Some(Color::Green),
+                    "Stopped" => Some(Color::Red),
+                    _ => Some(Color::Yellow),
+                };
+                vec![
+                    node.name.clone().cell(),
+                    node.role
+                        .to_string()
+                        .cell()
+                        .foreground_color(Some(Color::Cyan)),
+                    ip.cell(),
+                    status.cell().foreground_color(status_color),
+                ]
+            })
+            .collect();
+        let node_table = node_rows
+            .table()
+            .title(vec![
+                "NAME".cell().bold(true),
+                "ROLE".cell().bold(true),
+                "IP".cell().bold(true),
+                "STATUS".cell().bold(true),
+            ])
+            .border(Border::builder().build())
+            .separator(Separator::builder().build());
+        print_stdout(node_table)?;
     }
 
     if !state.mounts.is_empty() {

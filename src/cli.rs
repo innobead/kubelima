@@ -52,15 +52,19 @@ pub enum Commands {
 
 #[derive(Subcommand)]
 pub enum ClusterCmd {
-    /// Create a new cluster with one server and optional agent nodes
+    /// Create a new cluster with control-plane and optional worker nodes
     Create {
         /// Cluster name
         #[arg(short, long)]
         name: String,
 
-        /// Total number of nodes (1 server + N-1 agents)
-        #[arg(short = 'N', long, default_value = "1")]
-        nodes: u32,
+        /// Number of control-plane nodes
+        #[arg(long, default_value = "1")]
+        control_plane: u32,
+
+        /// Number of worker nodes
+        #[arg(long, default_value = "0")]
+        workers: u32,
 
         /// K8s distribution to use
         #[arg(short, long, default_value = "k3s")]
@@ -122,20 +126,24 @@ pub enum NodeCmd {
         #[arg(short, long)]
         cluster: String,
 
-        /// Node VM name (e.g. mycluster-agent-0)
+        /// Node VM name (e.g. mycluster-cp-0, mycluster-worker-0)
         #[arg(short, long)]
         node: String,
     },
 
-    /// Add one or more agent nodes to an existing cluster
+    /// Add control-plane or worker nodes to an existing cluster
     Add {
         /// Cluster name
         #[arg(short, long)]
         cluster: String,
 
-        /// Number of agent nodes to add
+        /// Number of control-plane nodes to add
+        #[arg(long, default_value = "0")]
+        control_plane: u32,
+
+        /// Number of worker nodes to add
         #[arg(long, default_value = "1")]
-        count: u32,
+        workers: u32,
     },
 
     /// Remove a node from a cluster
@@ -159,7 +167,7 @@ pub enum NodeCmd {
         #[arg(short, long)]
         cluster: String,
 
-        /// Node VM name (defaults to the server node)
+        /// Node VM name (defaults to the first control-plane node)
         #[arg(short, long)]
         node: Option<String>,
     },
@@ -175,7 +183,7 @@ pub enum KubeconfigCmd {
         #[arg(short, long)]
         cluster: String,
 
-        /// Write kubeconfig to this file (default: ~/kubeconfig-<cluster>.yaml)
+        /// Directory to save kubeconfig into (default: current directory)
         #[arg(short, long)]
         output: Option<String>,
 

@@ -18,15 +18,25 @@ async fn main() -> Result<()> {
         Commands::Cluster { cmd } => match cmd {
             ClusterCmd::Create {
                 name,
-                nodes,
+                control_plane,
+                workers,
                 distro,
                 cpus,
                 memory,
                 disk,
                 cloud_init,
             } => {
-                commands::cluster::create(&name, nodes, &distro, cpus, memory, disk, &cloud_init)
-                    .await?
+                commands::cluster::create(
+                    &name,
+                    control_plane,
+                    workers,
+                    &distro,
+                    cpus,
+                    memory,
+                    disk,
+                    &cloud_init,
+                )
+                .await?
             }
             ClusterCmd::List => commands::cluster::list().await?,
             ClusterCmd::Info { name } => commands::cluster::info(&name).await?,
@@ -36,7 +46,11 @@ async fn main() -> Result<()> {
         Commands::Node { cmd } => match cmd {
             NodeCmd::List { cluster } => commands::node::list(&cluster).await?,
             NodeCmd::Info { cluster, node } => commands::node::info(&cluster, &node).await?,
-            NodeCmd::Add { cluster, count } => commands::node::add(&cluster, count).await?,
+            NodeCmd::Add {
+                cluster,
+                control_plane,
+                workers,
+            } => commands::node::add(&cluster, control_plane, workers).await?,
             NodeCmd::Delete {
                 cluster,
                 node,
