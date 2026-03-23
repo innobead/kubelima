@@ -11,7 +11,28 @@ Provision and manage Kubernetes clusters backed by [Lima](https://lima-vm.io/) V
 
 ## Installation
 
-```bash
+### Download a pre-built binary
+
+Download the latest binary for your platform from the [Releases](https://github.com/innobead/kubelima/releases) page.
+
+### Build from source
+
+Requires Rust stable and [just](https://just.systems).
+
+```sh
+just release                         # optimised binary for the current host → dist/kubelima-<triple>
+just release-target <target-triple>  # cross-compile for a specific target
+```
+
+The binary is placed in `dist/`. Add it to your `PATH` or invoke it directly:
+
+```sh
+export PATH="$PWD/dist:$PATH"
+```
+
+Alternatively, install into Cargo's bin directory:
+
+```sh
 cargo install --path .
 ```
 
