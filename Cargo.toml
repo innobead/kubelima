@@ -3,7 +3,7 @@ name = "kubelima"
 version = "0.1.0"
 edition = "2024"
 description = "K8s variant distro cluster provisioning and management via Lima VMs"
-license = "MIT"
+license = "Apache-2.0"
 authors = ["David Ko <innobead@gmail.com>"]
 
 [[bin]]
